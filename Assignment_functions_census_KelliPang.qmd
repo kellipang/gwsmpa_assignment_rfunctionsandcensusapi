@@ -1,0 +1,229 @@
+---
+title: "R Assignment - Initial Functions and APIs"
+author: "Kelli Pang"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+format:
+  html:
+    self-contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#first load the libraries we'll need
+library(tidyverse)
+library(nycflights13) # <- make sure to install this package 
+library(tigris)
+library(tidycensus)
+library(tmap)
+library(tmaptools)
+library(janitor)
+library(writexl)
+library(here)
+options(tigris_class = "sf")
+options(tigris_use_cache = TRUE)
+
+```
+
+# Functions
+
+1) Create a function that will return the sum of 2 numbers.
+
+```{r}
+
+num_sum <- function(num1, num2){
+  total <- num1 + num2 
+  return(total)
+}
+
+num_sum(5,3)
+
+```
+
+2) Create a function that will return the mean of a list of numbers fed to it. (Remember that in our case we're using the word "list" for easier understanding, but we're talking about a "vector" of numbers in R-speak.)
+
+```{r}
+
+return_average <- function(num_list){
+  total_average <-  mean(num_list)
+  return(total_average)
+}
+
+sample_list <- c(1,2,3,4)
+return_average(sample_list)
+
+```
+
+3) Now, expand on the function you made above, and instead of just returning the mean number alone, have it return the sentence:
+*"The mean is ___"*. (Where the blank is the mean.)
+
+```{r}
+
+return_print_avg <- function(num_print_list){
+  total_print_avg <- mean(num_print_list)
+  print_sentence <- paste0("The mean is ", total_print_avg, ".")
+  return(print_sentence)
+}
+
+sample_print_list <- c(5,6,7,8)
+return_print_avg(sample_print_list)
+
+```
+
+For these next two questions, we'll use the `flights` dataset from the package `nycflights13`. It contains records of individual airline flights departing at New York's three metro airports, JFK, LaGuardia (LGA) and Newark (EWR). Run the following chunk to load the data. (Make sure you've actually installed the package, of course.)
+
+```{r}
+#load the data to use for the rest of the assignment questions
+flights <- nycflights13::flights
+
+```
+
+4) Using the `flights` dataset, create a function that filters the data frame to only include records from a single originating airport (column name `origin`). In other words, it should let you enter an origin airport and return all the records from just that airport.
+
+```{r}
+
+filter(flights, origin == "LGA")
+
+airport_sort <- function(air_origin){
+  filtered_airport <- flights %>% 
+    filter(origin == air_origin)
+  return(data.frame(filtered_airport))
+}
+
+airport_sort("LGA")
+
+```
+
+5) Similarly, using the `flights` dataset, create a function that:
+
+-   filters the data frame to only include records from a single originating airport (column name `origin`), and then
+
+-   aggregates (i.e. counts) the results by airline (`carrier`) to show how many flights each airline has from that airport.
+
+```{r}
+flights %>% filter(origin == "EWR") %>% count(carrier)
+
+carrier_count <- function(airport){
+  counter <- flights %>% filter(origin == airport) %>%  count(carrier)
+  return(counter)
+}
+
+carrier_count("EWR")
+```
+
+# Census Data
+
+In this section, fill in the necessary code to complete each step, using the [tidycensus](https://walker-data.com/tidycensus/index.html) package. We'll be downloading the data on populations with bachelor's and graduate/professional degrees.
+
+### Credentials
+
+First step to using tidycensus to interact with the U.S. Census Bureau's API is loading your API Key credential. You thankfully only have to do this one time on your computer and it will create a little file that remembers it each time afterwards.
+
+If you haven't already done so, make sure to request your personal API key from the Census here:
+
+https://api.census.gov/data/key_signup.html
+
+Uncomment the code below and run it to install your API key on your computer. Again, you only have to do this one time, so once it's install you can comment out the code again so it doesn't run every single time.
+
+```{r}
+
+census_api_key("1e08c4ca01a4ea7f4baa4ffaa0b31ddc8aa05e7a", install=TRUE)
+
+```
+
+The census variables we'll use are provided for you here, so you don't have to look them up.
+
+```{r}
+myvars <- c(education_total = "B06009_001",
+            education_bachelors = "B06009_005",
+            education_gradprofess = "B06009_006")
+```
+
+Now, using the `get_acs()` function in tidycensus, pull down the state-level data for those variables. Additionally, make sure you also pull down the geospatial/mapping data tied to each state was well.
+
+```{r}
+
+state_edu_geo <- get_acs(geography = "state", 
+                 variables = myvars,
+                 output = "wide", 
+                 geometry = TRUE)
+```
+
+To make things a little cleaner, use the `select()` function to remove the three "margin of error" columns, which are denoted with their ending "M".
+
+```{r}
+
+state_edu_geo_clean <- state_edu_geo %>% 
+  select(-ends_with("M"))
+
+state_edu_geo_clean
+colnames(state_edu_geo_clean) <- sub("E$", "", colnames(state_edu_geo_clean)) # $ means end of string only
+names(state_edu_geo_clean)
+```
+
+Now, using the `mutate()` function, create a new column that contains the percentage of people with a bachelor's or higher degree for each state. Remember that because the Census counts people with a bachelor's only vs. a graduate degree separately, you'll need to combine those categories before making your calculation against the total population column.
+
+```{r}
+
+pop_above_bach <- state_edu_geo_clean$education_bachelors + state_edu_geo_clean$education_gradprofess
+
+state_edu_geo_clean <- state_edu_geo_clean %>% 
+  mutate(
+    pct_above_bach <- round_half_up(pop_above_bach/education_total*100, 2)
+  )
+
+```
+
+We'll now move to make a map of the continental U.S. showing the new percentage measure we've created.
+
+First, filter your data to remove Alaska, Hawaii and Puerto Rico.
+
+```{r}
+
+state_edu_geo_clean <- state_edu_geo_clean[-c(2, 17, 51),]
+state_edu_geo_clean
+
+```
+
+Now, using the tmap() package, create a shaded map for the continental U.S. that shows the percentage of Bachelor's-and-higher populations in each state.
+
+```{r}
+us_geo <- tigris::states(class = "sf") 
+us_geo_clean <- us_geo[-c(32,35,36,37,41,42,50),]
+glimpse(us_geo_clean)
+glimpse(state_edu_geo_clean)
+```
+```{r}
+tm_shape(us_geo_clean) + 
+  tm_polygons()
+```
+```{r}
+state_edu <- get_acs(geography = "state", 
+                 variables = myvars,
+                 output = "wide")
+
+state_edu <- state_edu %>% 
+  select(-ends_with("M"))
+
+colnames(state_edu) <- sub("E$", "", colnames(state_edu)) # $ means end of string only
+state_edu <- state_edu[-c(49,7,22),]
+
+state_edu <- state_edu %>% 
+  mutate(
+    pct_above_bach= round_half_up((education_bachelors+education_gradprofess)/education_total*100, 2)
+  )
+
+names(state_edu)
+```
+
+```{r}
+joint_1 <- merge(us_geo_clean, state_edu)
+joint_1
+```
+
+```{r}
+tm_shape(joint_1) + 
+  tm_polygons("pct_above_bach", id="GEOID")
+```
+
+-- END ---
